@@ -13,57 +13,56 @@ def validate_address(address):
     return address
 
 def search_property(address):
-    """Search property using Hudson County tax records"""
+    """Search property using NJ MOD-IV system"""
     try:
         session = requests.Session()
         
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Origin': 'https://hudsoncp.envelope.com'
+            'Content-Type': 'application/x-www-form-urlencoded'
         }
         
-        # Get the initial search page to establish session
-        search_url = "https://hudsoncp.envelope.com/search"
-        
-        # Format the address for search
-        search_address = address.upper()
-        st.write("Debug: Searching for address:", search_address)
+        # Using the NJ MOD-IV system
+        base_url = "https://njactb.org"
+        search_url = f"{base_url}/mod4/search"
         
         # Prepare search data
         search_data = {
-            'property_address': search_address,
-            'city': 'JERSEY CITY',
-            'state': 'NJ'
+            'county': 'HUDSON',
+            'town': 'JERSEY CITY',
+            'street': address.upper(),
+            'submit': 'Search'
         }
+        
+        st.write("Debug: Search parameters:", search_data)
         
         # Make the search request
         response = session.post(search_url, data=search_data, headers=headers)
         st.write("Debug: Response status:", response.status_code)
         
-        # Parse the response
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Look for property results
-        results = soup.find_all('div', class_='property-result')
-        st.write(f"Debug: Found {len(results)} property results")
-        
-        for result in results:
-            result_text = result.get_text().strip()
-            st.write("Debug: Result content preview:")
-            st.code(result_text[:200])
+        if response.status_code == 200:
+            # Parse the response
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            if address.upper() in result_text.upper():
-                st.write("Debug: Found matching property")
-                link = result.find('a')
-                if link and 'href' in link.attrs:
-                    return urllib.parse.urljoin(search_url, link['href'])
-        
-        # If we didn't find any matches, show response content
-        st.write("Debug: Response content preview:")
-        st.code(response.text[:1000])
-        
+            # Look for property results table
+            table = soup.find('table', class_='results')
+            
+            if table:
+                st.write("Debug: Found results table")
+                rows = table.find_all('tr')
+                
+                for row in rows[1:]:  # Skip header row
+                    cells = row.find_all('td')
+                    if cells and address.upper() in cells[2].text.upper():  # Address column
+                        link = row.find('a')
+                        if link and 'href' in link.attrs:
+                            detail_url = urllib.parse.urljoin(base_url, link['href'])
+                            return detail_url
+            
+            st.write("Debug: Response preview:")
+            st.code(response.text[:1000])
+            
         return None
         
     except Exception as e:
@@ -91,6 +90,12 @@ st.markdown("""
         font-size: 16px;
         padding: 8px 12px;
     }
+    .info-box {
+        padding: 1rem;
+        background-color: #f8f9fa;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -101,6 +106,14 @@ st.markdown("""
     Format: number + street name + abbreviated type  
     Example: "192 olean ave" or "413 summit ave"
 """)
+
+# Add info box about data source
+st.markdown("""
+    <div class="info-box">
+    This tool searches the New Jersey Property Tax Assessment Records system.
+    Results include property details and assessment information.
+    </div>
+    """, unsafe_allow_html=True)
 
 address = st.text_input("Property Address:", key="address_input")
 
@@ -118,7 +131,7 @@ if st.button("Find Property Details"):
                 st.markdown(f"[View Property Details]({result_url})", unsafe_allow_html=True)
             else:
                 st.error("Property not found or an error occurred. Please check the address and try again.")
-                st.info("Note: You can also try searching directly on the [Hudson County Property Records](https://hudsoncp.envelope.com/search) website.")
+                st.info("Note: You can also search directly on the [NJ Property Tax Assessment Records](https://njactb.org) website.")
 
 st.markdown("---")
 st.markdown("Made with Streamlit ❤️")
