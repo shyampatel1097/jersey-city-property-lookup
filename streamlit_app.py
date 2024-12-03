@@ -1,6 +1,7 @@
 import streamlit as st
 import re
-from playwright.sync_api import sync_playwright
+import requests
+from bs4 import BeautifulSoup
 import time
 
 def validate_address(address):
@@ -12,65 +13,77 @@ def validate_address(address):
     return address
 
 def search_property(address):
-    """Search property using Playwright"""
+    """Search property using custom request sequence"""
     try:
         with st.spinner("Searching property records..."):
-            with sync_playwright() as p:
-                # Launch browser
-                browser = p.chromium.launch(headless=True)
-                context = browser.new_context()
-                page = context.new_page()
-                
-                # Navigate to search page
-                url = "https://taxrecords-nj.com/pub/cgi/prc6.cgi?ms_user=ctb09&district=0906&adv=1"
-                page.goto(url)
-                
-                # Wait for form to load
-                page.wait_for_selector('input[name="location"]')
-                
-                # Fill form
-                page.fill('input[name="location"]', address.upper())
-                page.select_option('select[name="database"]', '0')  # Current Owners/Assmt List
-                page.select_option('select[name="county"]', '09')   # HUDSON
-                
-                # Submit form
-                page.click('input[value="Submit Search"]')
-                
-                # Wait for results
-                page.wait_for_load_state('networkidle')
-                
-                st.write("Debug: Current URL:", page.url)
-                
-                # Look for More Info link
-                more_info = page.query_selector('a:text("More Info")')
-                if more_info:
-                    # Get href attribute
-                    href = more_info.get_attribute('href')
-                    if href:
-                        detail_url = href if href.startswith('http') else f"https://taxrecords-nj.com/pub/cgi/{href}"
-                        
-                        # Click the link
-                        more_info.click()
-                        page.wait_for_load_state('networkidle')
-                        
-                        # Get final URL
-                        final_url = page.url
-                        
-                        browser.close()
-                        return final_url
-                
-                # If no results found
-                st.write("Debug: Page content preview:")
-                st.code(page.content()[:500])
-                browser.close()
-                return None
-                
+            # Create a session to maintain cookies
+            session = requests.Session()
+            
+            # Headers to mimic a browser
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Origin': 'https://tax1.co.monmouth.nj.us',
+                'DNT': '1',
+            }
+            
+            # Use the NJ MOD-IV system instead
+            base_url = "https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi"
+            
+            # Initial parameters
+            params = {
+                'district': '0906',  # Jersey City
+                'ms_user': 'monm' 
+            }
+            
+            # Get initial page
+            response = session.get(base_url, params=params, headers=headers)
+            
+            # Prepare search data
+            search_data = {
+                'district': '0906',
+                'ms_user': 'monm',
+                'address': address.upper(),
+                'submit_search': 'Submit Search'
+            }
+            
+            # Submit search
+            response = session.post(base_url, data=search_data, headers=headers)
+            
+            # Parse response
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for property details link
+            detail_links = soup.find_all('a', href=True)
+            property_url = None
+            
+            for link in detail_links:
+                if 'DELAWARE' in link.text.upper():
+                    property_url = 'https://tax1.co.monmouth.nj.us/cgi-bin/' + link['href']
+                    break
+            
+            if property_url:
+                return property_url
+            
+            # Add debugging information
+            st.write("Debug: Response Status:", response.status_code)
+            st.write("Debug: Response Content Preview:")
+            st.code(response.text[:500])
+            
+            return None
+            
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
         return None
 
-# UI Code
-st.set_page_config(page_title="Jersey City Property Lookup", page_icon="🏠", layout="centered")
+# UI Code remains the same
+st.set_page_config(
+    page_title="Jersey City Property Lookup",
+    page_icon="🏠",
+    layout="centered"
+)
 
 st.markdown("""
     <style>
