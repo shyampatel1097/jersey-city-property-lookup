@@ -2,7 +2,7 @@ import streamlit as st
 import re
 import requests
 from bs4 import BeautifulSoup
-import time
+import urllib.parse
 
 def validate_address(address):
     """Validate address format and return cleaned version"""
@@ -13,72 +13,81 @@ def validate_address(address):
     return address
 
 def search_property(address):
-    """Search property using custom request sequence"""
+    """Search property using requests"""
     try:
-        with st.spinner("Searching property records..."):
-            # Create a session to maintain cookies
-            session = requests.Session()
-            
-            # Headers to mimic a browser
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Origin': 'https://tax1.co.monmouth.nj.us',
-                'DNT': '1',
-            }
-            
-            # Use the NJ MOD-IV system instead
-            base_url = "https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi"
-            
-            # Initial parameters
-            params = {
-                'district': '0906',  # Jersey City
-                'ms_user': 'monm' 
-            }
-            
-            # Get initial page
-            response = session.get(base_url, params=params, headers=headers)
-            
-            # Prepare search data
-            search_data = {
-                'district': '0906',
-                'ms_user': 'monm',
-                'address': address.upper(),
-                'submit_search': 'Submit Search'
-            }
-            
-            # Submit search
-            response = session.post(base_url, data=search_data, headers=headers)
-            
-            # Parse response
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Look for property details link
-            detail_links = soup.find_all('a', href=True)
-            property_url = None
-            
-            for link in detail_links:
-                if 'DELAWARE' in link.text.upper():
-                    property_url = 'https://tax1.co.monmouth.nj.us/cgi-bin/' + link['href']
-                    break
-            
-            if property_url:
-                return property_url
-            
-            # Add debugging information
-            st.write("Debug: Response Status:", response.status_code)
-            st.write("Debug: Response Content Preview:")
-            st.code(response.text[:500])
-            
-            return None
-            
+        session = requests.Session()
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Origin': 'https://tax1.co.monmouth.nj.us',
+            'Referer': 'https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi'
+        }
+        
+        # First request - get initial page and set up session
+        base_url = "https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi"
+        initial_params = {
+            'district': '0906',
+            'ms_user': 'monm'
+        }
+        
+        initial_response = session.get(base_url, params=initial_params, headers=headers)
+        st.write("Debug: Initial response status:", initial_response.status_code)
+        
+        # Parse the initial page to get any hidden fields
+        soup = BeautifulSoup(initial_response.text, 'html.parser')
+        form = soup.find('form')
+        
+        # Prepare the search data
+        search_data = {
+            'district': '0906',
+            'ms_user': 'monm',
+            'type': '1',
+            'adv': '0',
+            'out_type': '0',
+            'location': address.upper()
+        }
+        
+        # Add any hidden fields from the form
+        if form:
+            for hidden in form.find_all('input', type='hidden'):
+                if 'name' in hidden.attrs and 'value' in hidden.attrs:
+                    search_data[hidden['name']] = hidden['value']
+        
+        # Submit the search
+        st.write("Debug: Submitting search with parameters:", search_data)
+        response = session.post(base_url, data=search_data, headers=headers, allow_redirects=True)
+        st.write("Debug: Search response status:", response.status_code)
+        
+        # Parse the results
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Look for property link
+        tables = soup.find_all('table')
+        for table in tables:
+            rows = table.find_all('tr')
+            for row in rows:
+                cells = row.find_all('td')
+                for cell in cells:
+                    if address.upper() in cell.text.upper():
+                        link = row.find('a')
+                        if link and 'href' in link.attrs:
+                            detail_url = urllib.parse.urljoin(base_url, link['href'])
+                            return detail_url
+        
+        # If we didn't find the property, show the response content
+        st.write("Debug: Response Content Preview:")
+        st.code(response.text[:500])
+        
+        return None
+        
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
         return None
 
-# UI Code remains the same
+# UI Code
 st.set_page_config(
     page_title="Jersey City Property Lookup",
     page_icon="🏠",
