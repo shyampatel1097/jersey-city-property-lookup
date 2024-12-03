@@ -3,7 +3,6 @@ import re
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
-import json
 
 def validate_address(address):
     """Validate address format and return cleaned version"""
@@ -21,71 +20,64 @@ def search_property(address):
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Content-Type': 'application/x-www-form-urlencoded'
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Referer': 'https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi'
         }
         
-        # Base URL for the tax assessment system
-        base_url = "https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi"
-        
-        # First, get initial form page
-        params = {
-            'district': '0906',
-            'ms_user': 'monm'
-        }
-        
-        initial_response = session.get(base_url, params=params)
-        st.write("Debug: Initial response status:", initial_response.status_code)
-        
-        # Now prepare form data for search
-        search_data = {
-            'district': '0906',
+        # Construct search URL based on the JavaScript in the page
+        search_params = {
             'ms_user': 'monm',
+            'passwd': '',
             'srch_type': '1',
             'out_type': '0',
+            'district': '0906',
             'adv': '1',
-            'location': address.upper()
+            'location': address.upper(),
+            'Submit': 'Submit+Search'
         }
         
-        # Add debug information
-        st.write("Debug: Submitting search with data:", json.dumps(search_data, indent=2))
+        # Format the search URL
+        base_url = "https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi"
+        search_url = f"{base_url}?{urllib.parse.urlencode(search_params)}"
         
-        # Submit the search form
-        response = session.post(
-            base_url,
-            data=search_data,
-            headers=headers,
-            allow_redirects=True
-        )
+        st.write("Debug: Search URL:", search_url)
         
-        st.write("Debug: Search response status:", response.status_code)
-        st.write("Debug: Final URL:", response.url)
+        # Make the request
+        response = session.get(search_url, headers=headers)
+        st.write("Debug: Response status:", response.status_code)
         
         # Parse the response
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Look for tables that might contain our results
+        # Look for tables
         tables = soup.find_all('table')
         st.write(f"Debug: Found {len(tables)} tables")
         
-        for idx, table in enumerate(tables):
-            st.write(f"Debug: Checking table {idx + 1}")
-            table_text = table.get_text()
-            if 'DELAWARE' in table_text.upper():
-                st.write("Debug: Found table with property information")
-                # Look for property link
+        # Print the text content of each table for debugging
+        for i, table in enumerate(tables):
+            st.write(f"Debug: Table {i+1} content preview:")
+            table_text = table.get_text().strip()
+            st.code(table_text[:200])
+            
+            # Check if this table has our address
+            if address.upper() in table_text.upper():
+                st.write(f"Debug: Found address in table {i+1}")
+                # Look for More Info link in this table
                 links = table.find_all('a')
                 for link in links:
-                    if link.text.strip() == 'More Info':
+                    if 'More Info' in link.text:
                         detail_url = urllib.parse.urljoin(base_url, link['href'])
                         return detail_url
         
         # If we get here, we didn't find the property
-        st.write("Debug: Response Content Preview:")
+        st.write("Debug: Full page content preview:")
         st.code(response.text[:1000])
+        
         return None
         
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
+        st.write("Debug: Full error details:", str(e))
         return None
 
 # UI Code
