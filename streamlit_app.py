@@ -3,6 +3,7 @@ import re
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
+import json
 
 def validate_address(address):
     """Validate address format and return cleaned version"""
@@ -20,67 +21,67 @@ def search_property(address):
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Origin': 'https://tax1.co.monmouth.nj.us',
-            'Referer': 'https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi'
+            'Content-Type': 'application/x-www-form-urlencoded'
         }
         
-        # First request - get initial page and set up session
+        # Base URL for the tax assessment system
         base_url = "https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi"
-        initial_params = {
+        
+        # First, get initial form page
+        params = {
             'district': '0906',
             'ms_user': 'monm'
         }
         
-        initial_response = session.get(base_url, params=initial_params, headers=headers)
+        initial_response = session.get(base_url, params=params)
         st.write("Debug: Initial response status:", initial_response.status_code)
         
-        # Parse the initial page to get any hidden fields
-        soup = BeautifulSoup(initial_response.text, 'html.parser')
-        form = soup.find('form')
-        
-        # Prepare the search data
+        # Now prepare form data for search
         search_data = {
             'district': '0906',
             'ms_user': 'monm',
-            'type': '1',
-            'adv': '0',
+            'srch_type': '1',
             'out_type': '0',
+            'adv': '1',
             'location': address.upper()
         }
         
-        # Add any hidden fields from the form
-        if form:
-            for hidden in form.find_all('input', type='hidden'):
-                if 'name' in hidden.attrs and 'value' in hidden.attrs:
-                    search_data[hidden['name']] = hidden['value']
+        # Add debug information
+        st.write("Debug: Submitting search with data:", json.dumps(search_data, indent=2))
         
-        # Submit the search
-        st.write("Debug: Submitting search with parameters:", search_data)
-        response = session.post(base_url, data=search_data, headers=headers, allow_redirects=True)
+        # Submit the search form
+        response = session.post(
+            base_url,
+            data=search_data,
+            headers=headers,
+            allow_redirects=True
+        )
+        
         st.write("Debug: Search response status:", response.status_code)
+        st.write("Debug: Final URL:", response.url)
         
-        # Parse the results
+        # Parse the response
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Look for property link
+        # Look for tables that might contain our results
         tables = soup.find_all('table')
-        for table in tables:
-            rows = table.find_all('tr')
-            for row in rows:
-                cells = row.find_all('td')
-                for cell in cells:
-                    if address.upper() in cell.text.upper():
-                        link = row.find('a')
-                        if link and 'href' in link.attrs:
-                            detail_url = urllib.parse.urljoin(base_url, link['href'])
-                            return detail_url
+        st.write(f"Debug: Found {len(tables)} tables")
         
-        # If we didn't find the property, show the response content
+        for idx, table in enumerate(tables):
+            st.write(f"Debug: Checking table {idx + 1}")
+            table_text = table.get_text()
+            if 'DELAWARE' in table_text.upper():
+                st.write("Debug: Found table with property information")
+                # Look for property link
+                links = table.find_all('a')
+                for link in links:
+                    if link.text.strip() == 'More Info':
+                        detail_url = urllib.parse.urljoin(base_url, link['href'])
+                        return detail_url
+        
+        # If we get here, we didn't find the property
         st.write("Debug: Response Content Preview:")
-        st.code(response.text[:500])
-        
+        st.code(response.text[:1000])
         return None
         
     except Exception as e:
