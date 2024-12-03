@@ -13,7 +13,7 @@ def validate_address(address):
     return address
 
 def search_property(address):
-    """Search property using requests"""
+    """Search property using Hudson County tax records"""
     try:
         session = requests.Session()
         
@@ -21,56 +21,47 @@ def search_property(address):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': 'https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi'
+            'Origin': 'https://hudsoncp.envelope.com'
         }
         
-        # Construct search URL based on the JavaScript in the page
-        search_params = {
-            'ms_user': 'monm',
-            'passwd': '',
-            'srch_type': '1',
-            'out_type': '0',
-            'district': '0906',
-            'adv': '1',
-            'location': address.upper(),
-            'Submit': 'Submit+Search'
+        # Get the initial search page to establish session
+        search_url = "https://hudsoncp.envelope.com/search"
+        
+        # Format the address for search
+        search_address = address.upper()
+        st.write("Debug: Searching for address:", search_address)
+        
+        # Prepare search data
+        search_data = {
+            'property_address': search_address,
+            'city': 'JERSEY CITY',
+            'state': 'NJ'
         }
         
-        # Format the search URL
-        base_url = "https://tax1.co.monmouth.nj.us/cgi-bin/prc6.cgi"
-        search_url = f"{base_url}?{urllib.parse.urlencode(search_params)}"
-        
-        st.write("Debug: Search URL:", search_url)
-        
-        # Make the request
-        response = session.get(search_url, headers=headers)
+        # Make the search request
+        response = session.post(search_url, data=search_data, headers=headers)
         st.write("Debug: Response status:", response.status_code)
         
         # Parse the response
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Look for tables
-        tables = soup.find_all('table')
-        st.write(f"Debug: Found {len(tables)} tables")
+        # Look for property results
+        results = soup.find_all('div', class_='property-result')
+        st.write(f"Debug: Found {len(results)} property results")
         
-        # Print the text content of each table for debugging
-        for i, table in enumerate(tables):
-            st.write(f"Debug: Table {i+1} content preview:")
-            table_text = table.get_text().strip()
-            st.code(table_text[:200])
+        for result in results:
+            result_text = result.get_text().strip()
+            st.write("Debug: Result content preview:")
+            st.code(result_text[:200])
             
-            # Check if this table has our address
-            if address.upper() in table_text.upper():
-                st.write(f"Debug: Found address in table {i+1}")
-                # Look for More Info link in this table
-                links = table.find_all('a')
-                for link in links:
-                    if 'More Info' in link.text:
-                        detail_url = urllib.parse.urljoin(base_url, link['href'])
-                        return detail_url
+            if address.upper() in result_text.upper():
+                st.write("Debug: Found matching property")
+                link = result.find('a')
+                if link and 'href' in link.attrs:
+                    return urllib.parse.urljoin(search_url, link['href'])
         
-        # If we get here, we didn't find the property
-        st.write("Debug: Full page content preview:")
+        # If we didn't find any matches, show response content
+        st.write("Debug: Response content preview:")
         st.code(response.text[:1000])
         
         return None
@@ -127,6 +118,7 @@ if st.button("Find Property Details"):
                 st.markdown(f"[View Property Details]({result_url})", unsafe_allow_html=True)
             else:
                 st.error("Property not found or an error occurred. Please check the address and try again.")
+                st.info("Note: You can also try searching directly on the [Hudson County Property Records](https://hudsoncp.envelope.com/search) website.")
 
 st.markdown("---")
 st.markdown("Made with Streamlit ❤️")
